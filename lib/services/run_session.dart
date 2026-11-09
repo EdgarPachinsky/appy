@@ -37,6 +37,13 @@ class RunSession extends ChangeNotifier {
   String? url;
   bool busy = false;
 
+  /// The command said it's up: a local URL or a "ready" / "listening" line
+  /// (flutter: the app started). Workflows wait for this.
+  bool ready = false;
+
+  /// Port the command failed to bind because something else holds it.
+  int? portInUse;
+
   final List<LogLine> logs = [];
   static const _maxLogs = 4000;
 
@@ -51,8 +58,10 @@ class RunSession extends ChangeNotifier {
   bool _stopRequested = false;
   Timer? _notifyTimer;
 
-  bool get isActive =>
-      status == RunStatus.starting || status == RunStatus.running || status == RunStatus.stopping;
+  /// Stopped from Appy (stop / restart / quit) rather than exiting by itself.
+  bool get stoppedByUser => _stopRequested;
+
+  bool get isActive => status == RunStatus.starting || status == RunStatus.running || status == RunStatus.stopping;
   bool get isFlutter => option.isFlutterRun;
   bool get canReload => isFlutter && _appId != null && status == RunStatus.running && !busy;
 
@@ -62,6 +71,8 @@ class RunSession extends ChangeNotifier {
     exitCode = null;
     url = null;
     busy = false;
+    ready = false;
+    portInUse = null;
     _appId = null;
     _stopRequested = false;
     startedAt = DateTime.now();
@@ -75,13 +86,17 @@ class RunSession extends ChangeNotifier {
     final script = RegExp(r'[;&|]').hasMatch(cmd) ? cmd : 'exec $cmd';
 
     try {
-      final process = await Process.start(
-        '/bin/zsh',
-        ['-c', script],
-        workingDirectory: project.path,
-        environment: env,
-        includeParentEnvironment: false,
-      );
+      final process = Platform.isWindows
+          // Via a variable: Dart's argument quoting would turn the command's `"` into `\"`, which cmd doesn't read.
+          ? await Process.start('cmd.exe', ['/d', '/c', '%APPY_CMD%'],
+              workingDirectory: project.path, environment: {...env, 'APPY_CMD': cmd}, includeParentEnvironment: false)
+          : await Process.start(
+              '/bin/zsh',
+              ['-c', script],
+              workingDirectory: project.path,
+              environment: env,
+              includeParentEnvironment: false,
+            );
       _process = process;
       process.stdout
           .transform(const Utf8Decoder(allowMalformed: true))
@@ -220,6 +235,7 @@ class RunSession extends ChangeNotifier {
         _stateChanged();
       case 'app.started':
         status = RunStatus.running;
+        ready = true;
         _log('App is running', system: true);
         _stateChanged();
       case 'app.log':
@@ -245,6 +261,12 @@ class RunSession extends ChangeNotifier {
     }
   }
 
+  static final _readyLine = RegExp(
+      r'\b(listening|ready in|ready on|server started|started server|running on|serving|compiled successfully)\b',
+      caseSensitive: false);
+  static final _inUse = RegExp(r'EADDRINUSE|address already in use|port \S+ is already in use', caseSensitive: false);
+  // shortcut: needs the port in the error line (Node, Go, Rails, Vite do); Python's "[Errno 48]" alone shows no button.
+  static final _portNumber = RegExp(r'(?:port\s+|:)(\d{2,5})\b', caseSensitive: false);
   static final _ansi = RegExp(r'\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))');
   static final _localUrl =
       RegExp(r'https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::\d+)?(?:/[^\s"' "'" r')\]]*)?');
@@ -254,11 +276,25 @@ class RunSession extends ChangeNotifier {
     logs.add(LogLine(text, isError: error, isSystem: system));
     if (logs.length > _maxLogs) logs.removeRange(0, logs.length - _maxLogs);
 
-    if (url == null && !system) {
-      final match = _localUrl.firstMatch(text);
-      if (match != null) {
-        url = match.group(0)!.replaceFirst('0.0.0.0', 'localhost');
+    if (!system) {
+      if (url == null) {
+        final match = _localUrl.firstMatch(text);
+        if (match != null) {
+          url = match.group(0)!.replaceFirst('0.0.0.0', 'localhost');
+          ready = true;
+          _stateChanged();
+        }
+      }
+      if (!ready && !isFlutter && _readyLine.hasMatch(text)) {
+        ready = true;
         _stateChanged();
+      }
+      if (portInUse == null && _inUse.hasMatch(text)) {
+        final port = int.tryParse(_portNumber.allMatches(text).lastOrNull?.group(1) ?? '');
+        if (port != null) {
+          portInUse = port;
+          _stateChanged();
+        }
       }
     }
     _scheduleNotify();
@@ -286,6 +322,13 @@ class RunSession extends ChangeNotifier {
 
 /// Signals a process and all of its descendants (npm → node → vite…).
 Future<void> killProcessTree(int pid, ProcessSignal signal) async {
+  if (Platform.isWindows) {
+    // Console programs have no window to receive a polite close, so it's always a force-kill.
+    try {
+      await Process.run('taskkill', ['/T', '/F', '/PID', '$pid']);
+    } catch (_) {}
+    return;
+  }
   final all = <int>[];
   final queue = <int>[pid];
   while (queue.isNotEmpty) {

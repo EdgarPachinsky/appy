@@ -14,17 +14,26 @@ class ShellEnv {
   }
 
   static Future<Map<String, String>> _load() async {
+    // Windows apps already get the user's full PATH from the registry.
+    if (Platform.isWindows) return _cached = Map<String, String>.of(Platform.environment);
     final env = Map<String, String>.of(Platform.environment);
     const marker = '__APPY_ENV__';
     final shell = Platform.environment['SHELL'] ?? '/bin/zsh';
+    Process? process;
     try {
-      final result = await Process.run(
+      // Detached = its own session without a controlling terminal. An
+      // interactive (-i) shell would otherwise take over the terminal that
+      // `flutter run` reads r / R from, and the next keypress crashes it.
+      process = await Process.start(
         shell,
         ['-ilc', 'printf "$marker"; /usr/bin/env -0'],
-        stdoutEncoding: const Utf8Codec(allowMalformed: true),
-        stderrEncoding: const Utf8Codec(allowMalformed: true),
-      ).timeout(const Duration(seconds: 15));
-      final out = result.stdout as String;
+        mode: ProcessStartMode.detachedWithStdio,
+      );
+      process.stderr.drain<void>();
+      final out = await process.stdout
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .join()
+          .timeout(const Duration(seconds: 15));
       final start = out.indexOf(marker);
       if (start >= 0) {
         for (final entry in out.substring(start + marker.length).split('\u0000')) {
@@ -34,6 +43,7 @@ class ShellEnv {
       }
     } catch (_) {
       // Fall back to the app's own environment plus common paths below.
+      process?.kill(); // e.g. a .zshrc that hangs past the timeout
     }
 
     final home = env['HOME'] ?? '';

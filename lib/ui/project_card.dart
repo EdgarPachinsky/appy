@@ -292,7 +292,7 @@ List<PopupMenuEntry<String>> projectMenuItems() {
   return [
     item('rename', Icons.edit_outlined, 'Rename'),
     item('tags', Icons.sell_outlined, 'Edit tags'),
-    item('finder', Icons.folder_open_outlined, 'Show in Finder'),
+    item('finder', Icons.folder_open_outlined, SystemActions.revealLabel),
     item('terminal', Icons.terminal_rounded, 'Open in Terminal'),
     item('rescan', Icons.manage_search_rounded, 'Re-detect project'),
     const PopupMenuDivider(height: 8),

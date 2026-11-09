@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 import '../services/port_scanner.dart';
+import '../services/run_session.dart';
 import '../services/system.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
@@ -296,6 +297,42 @@ class _Toggle extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Shown when a command crashed because its port was taken:
+/// kills whatever holds the port and runs the command again.
+class PortInUseButton extends StatefulWidget {
+  const PortInUseButton({super.key, required this.session, required this.state});
+  final RunSession session;
+  final AppState state;
+
+  @override
+  State<PortInUseButton> createState() => _PortInUseButtonState();
+}
+
+class _PortInUseButtonState extends State<PortInUseButton> {
+  bool _busy = false;
+
+  Future<void> _retry() async {
+    setState(() => _busy = true);
+    await widget.state.freePortAndRetry(widget.session);
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final port = widget.session.portInUse;
+    if (port == null) return const SizedBox.shrink();
+    return Tooltip(
+      message: 'Port $port is taken by another process',
+      child: PillButton(
+        label: _busy ? 'Freeing :$port…' : 'Kill :$port & retry',
+        icon: Icons.bolt_rounded,
+        color: AppColors.amber,
+        onPressed: _busy ? null : _retry,
       ),
     );
   }

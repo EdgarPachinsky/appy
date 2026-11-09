@@ -9,6 +9,7 @@ import '../theme.dart';
 import 'dialogs.dart';
 import 'log_view.dart';
 import 'open_in_button.dart';
+import 'ports_panel.dart';
 import 'project_card.dart';
 import 'widgets.dart';
 
@@ -165,7 +166,7 @@ class _ProjectPageState extends State<ProjectPage> {
             OpenInButton(project: project),
             IconAction(
               icon: Icons.folder_open_outlined,
-              tooltip: 'Show in Finder',
+              tooltip: SystemActions.revealLabel,
               color: AppColors.muted,
               onPressed: () => SystemActions.revealInFinder(project.path),
             ),
@@ -458,6 +459,11 @@ class _ProjectPageState extends State<ProjectPage> {
               style: const TextStyle(fontSize: 11.5, color: AppColors.faint, fontFamily: monoFont),
             ),
           ),
+          if (s.portInUse != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: PortInUseButton(session: s, state: state),
+            ),
           if (s.url != null)
             Padding(
               padding: const EdgeInsets.only(right: 4),

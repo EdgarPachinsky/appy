@@ -1,5 +1,6 @@
 import Cocoa
 import FlutterMacOS
+import UserNotifications
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
@@ -15,8 +16,8 @@ class MainFlutterWindow: NSWindow {
   }
 }
 
-/// Appy's native helpers. Currently: dropping folders onto the menu bar icon.
-final class AppyNative {
+/// Appy's native helpers: dropping folders onto the menu bar icon, notifications.
+final class AppyNative: NSObject, UNUserNotificationCenterDelegate {
   static let shared = AppyNative()
   private var channel: FlutterMethodChannel?
 
@@ -26,11 +27,42 @@ final class AppyNative {
       switch call.method {
       case "enableTrayDrop":
         result(AppyNative.shared.enableTrayDrop())
+      case "notify":
+        let args = call.arguments as? [String: Any] ?? [:]
+        AppyNative.shared.notify(
+          title: args["title"] as? String ?? "Appy",
+          body: args["body"] as? String ?? "",
+          sound: args["sound"] as? Bool ?? false
+        )
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }
     }
     self.channel = channel
+  }
+
+  /// Shows a macOS notification. macOS asks for permission the first time.
+  private func notify(title: String, body: String, sound: Bool) {
+    let center = UNUserNotificationCenter.current()
+    center.delegate = self
+    center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+      guard granted else { return }
+      let content = UNMutableNotificationContent()
+      content.title = title
+      content.body = body
+      if sound { content.sound = .default }
+      center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+  }
+
+  // Show banners even while Appy is the active app.
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    completionHandler([.banner, .sound])
   }
 
   fileprivate func deliver(_ paths: [String]) {

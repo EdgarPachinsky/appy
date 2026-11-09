@@ -28,5 +28,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Appy asks apps to quit when a workflow step restarts or quits them.</string>
 </dict>
 </plist>

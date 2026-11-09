@@ -1,2 +1,6 @@
 #include "../../Flutter/Flutter-Release.xcconfig"
 #include "Warnings.xcconfig"
+
+// shortcut: Apple Silicon only. Xcode 27's lipo rejects `-verify_arch arm64 x86_64`,
+// which Flutter's universal release build runs; drop this once Flutter or Xcode fixes it.
+ARCHS = arm64

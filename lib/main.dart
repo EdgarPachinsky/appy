@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:tray_manager/tray_manager.dart' show trayManager;
 import 'package:window_manager/window_manager.dart';
@@ -18,13 +20,14 @@ Future<void> main() async {
   final state = AppState();
   await state.init();
 
-  const options = WindowOptions(
-    size: Size(1100, 720),
-    minimumSize: Size(760, 500),
+  final options = WindowOptions(
+    size: const Size(1100, 720),
+    minimumSize: const Size(760, 500),
     center: true,
     title: 'Appy',
     backgroundColor: AppColors.bg,
-    titleBarStyle: TitleBarStyle.hidden,
+    // Hidden keeps the traffic lights on macOS; on Windows it would remove the close/minimize buttons.
+    titleBarStyle: Platform.isMacOS ? TitleBarStyle.hidden : TitleBarStyle.normal,
   );
   windowManager.waitUntilReadyToShow(options, () async {
     await windowManager.show();

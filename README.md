@@ -24,3 +24,13 @@ flutter build macos   # release .app
 ```
 
 Commands run with your login-shell environment (nvm, Homebrew, Flutter PATH…).
+
+### Windows
+
+Build on a Windows machine with Flutter and Visual Studio's "Desktop development with C++" workload:
+
+```bash
+flutter build windows   # → build\windows\x64\runner\Release\
+```
+
+Commands run through `cmd.exe`, and helper steps run through PowerShell. Not on Windows yet: notifications, dropping folders on the tray icon, "Run application" steps, and matching ports to projects by folder.

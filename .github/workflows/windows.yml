@@ -1,0 +1,32 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.1
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # Only the Windows-safe tests: the rest drive zsh, lsof and macOS apps.
+      - run: flutter test test/windows_port_test.dart
+
+      - run: flutter build windows --release
+
+      # The .exe needs the DLLs and data/ folder next to it, so ship the whole folder.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appy-windows
+          path: build/windows/x64/runner/Release/
+          if-no-files-found: error

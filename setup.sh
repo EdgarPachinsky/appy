@@ -32,4 +32,4 @@ flutter analyze || true
 
 echo ""
 echo "Done. Run:    flutter run -d macos"
-echo "      Build:  flutter build macos   (→ build/macos/Build/Products/Release/appy.app)"
+echo "      Build:  flutter build macos   (→ build/macos/Build/Products/Release/Appy.app)"

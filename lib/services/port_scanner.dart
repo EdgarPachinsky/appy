@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'resource_monitor.dart';
+
 /// A TCP port something is listening on.
 class PortInfo {
   const PortInfo({
@@ -33,6 +35,7 @@ class PortScanner {
 
   /// Listening TCP ports of processes the current user can see (and kill).
   static Future<List<PortInfo>> scan() async {
+    if (Platform.isWindows) return _scanWindows();
     try {
       final result = await Process.run(
         '/usr/sbin/lsof',
@@ -75,6 +78,47 @@ class PortScanner {
     }
   }
 
+  // shortcut: no cwd on Windows (no cheap way to read another process's), so ports aren't matched to projects by folder.
+  static Future<List<PortInfo>> _scanWindows() async {
+    try {
+      final results = await Future.wait([
+        Process.run('netstat', ['-ano']),
+        Process.run('tasklist', ['/fo', 'csv', '/nh']),
+      ]).timeout(const Duration(seconds: 8));
+      return parseNetstat(results[0].stdout as String, parseTasklist(results[1].stdout as String));
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Listening TCP rows of `netstat -ano`; [names] is pid → image name from `tasklist`.
+  static List<PortInfo> parseNetstat(String out, Map<int, String> names) {
+    final found = <String, PortInfo>{};
+    for (final line in out.split('\n')) {
+      // Proto, local, foreign, state (localized, so unused), pid. Listeners are the TCP rows with foreign port 0.
+      final parts = line.trim().split(RegExp(r'\s+'));
+      if (parts.length != 5 || !parts[0].startsWith('TCP') || !parts[2].endsWith(':0')) continue;
+      final colon = parts[1].lastIndexOf(':');
+      final port = int.tryParse(parts[1].substring(colon + 1));
+      final pid = int.tryParse(parts[4]);
+      if (colon == -1 || port == null || pid == null || pid <= 4) continue; // 0/4 = Idle / System
+      final raw = parts[1].substring(0, colon);
+      final address = raw == '0.0.0.0' || raw == '[::]' ? '*' : raw;
+      final key = '$pid:$port';
+      final existing = found[key];
+      if (existing == null || address == '*') {
+        found[key] = PortInfo(port: port, pid: pid, command: names[pid] ?? '', address: address);
+      }
+    }
+    return found.values.toList()..sort((a, b) => a.port.compareTo(b.port));
+  }
+
+  /// pid → name without `.exe`, from `tasklist /fo csv /nh`.
+  static Map<int, String> parseTasklist(String out) => {
+        for (final m in RegExp(r'^"([^"]*)","(\d+)"', multiLine: true).allMatches(out))
+          int.parse(m.group(2)!): m.group(1)!.replaceFirst(RegExp(r'\.exe$', caseSensitive: false), ''),
+      };
+
   /// Dev servers, databases, runtimes — hides AirPlay, Spotify & friends.
   static bool looksLikeDev(PortInfo p) => _devCommand.hasMatch(p.command);
 
@@ -101,6 +145,7 @@ class PortScanner {
   /// pid → parent pid for every process.
   static Future<Map<int, int>> parents() async {
     try {
+      if (Platform.isWindows) return {for (final p in await windowsProcesses()) p.pid: p.ppid};
       final result = await Process.run('/bin/ps', ['-A', '-o', 'pid=,ppid=']);
       final out = <int, int>{};
       for (final line in (result.stdout as String).split('\n')) {
@@ -117,6 +162,10 @@ class PortScanner {
 
   static bool isAlive(int pid) {
     try {
+      if (Platform.isWindows) {
+        final out = Process.runSync('tasklist', ['/fi', 'PID eq $pid', '/fo', 'csv', '/nh']).stdout as String;
+        return parseTasklist(out).containsKey(pid);
+      }
       return Process.runSync('/bin/kill', ['-0', '$pid']).exitCode == 0;
     } catch (_) {
       return false;

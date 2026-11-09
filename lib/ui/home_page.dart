@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../models/project.dart';
+import '../models/workflow.dart';
+import '../services/hotkeys.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import 'dialogs.dart';
@@ -11,6 +13,7 @@ import 'ports_panel.dart';
 import 'project_card.dart';
 import 'project_page.dart';
 import 'widgets.dart';
+import 'workflow_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.state});
@@ -86,6 +89,7 @@ class _HomePageState extends State<HomePage> {
                 children: [
                   _header(running, hasProjects: all.isNotEmpty),
                   if (all.isNotEmpty) _filters(all, tags),
+                  if (all.isNotEmpty) _workflowsBar(),
                   Expanded(
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -162,6 +166,13 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             const Spacer(),
+            IconAction(
+              icon: state.notificationsOn ? Icons.notifications_active_outlined : Icons.notifications_off_outlined,
+              tooltip: state.notificationsOn ? 'Notifications on — click to mute' : 'Notifications off',
+              color: state.notificationsOn ? AppColors.lavender : AppColors.muted,
+              onPressed: () => state.notificationsOn = !state.notificationsOn,
+            ),
+            const SizedBox(width: 6),
             PillButton(
               label: 'Ports',
               icon: Icons.lan_outlined,
@@ -204,6 +215,54 @@ class _HomePageState extends State<HomePage> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _newWorkflow() async {
+    final name = await showTextInputDialog(
+      context,
+      title: 'New workflow',
+      hint: 'e.g. run css workcard',
+      confirmLabel: 'Create',
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    Navigator.of(context).push(workflowRoute(state.addWorkflow(name), state));
+  }
+
+  Widget _workflowsBar() {
+    return SizedBox(
+      height: 46,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+        children: [
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.only(right: 10),
+              child: Text('WORKFLOWS',
+                  style: TextStyle(color: AppColors.faint, fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+            ),
+          ),
+          for (final w in state.workflows)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: _WorkflowChip(
+                workflow: w,
+                state: state,
+                onOpen: () => Navigator.of(context).push(workflowRoute(w, state)),
+              ),
+            ),
+          Center(
+            child: IconAction(
+              icon: Icons.add_rounded,
+              tooltip: 'New workflow',
+              color: AppColors.muted,
+              size: 28,
+              onPressed: _newWorkflow,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -266,6 +325,73 @@ class _FilterChip extends StatelessWidget {
               Text(label, style: TextStyle(color: fg, fontSize: 12.5, fontWeight: FontWeight.w600)),
               const SizedBox(width: 6),
               Text('$count', style: TextStyle(color: fg.withAlpha(140), fontSize: 11.5)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WorkflowChip extends StatelessWidget {
+  const _WorkflowChip({required this.workflow, required this.state, required this.onOpen});
+  final Workflow workflow;
+  final AppState state;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final run = state.workflowRuns[workflow.id];
+    final running = run?.active ?? false;
+    final live = state.isWorkflowLive(workflow);
+    final failed = !live && run != null && !run.cancelled && run.error != null;
+    return Material(
+      color: AppColors.card,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(9),
+        side: BorderSide(color: live ? AppColors.green.withAlpha(90) : AppColors.border),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.only(left: 11, right: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (live || failed) ...[
+                StatusDot(
+                  color: failed ? AppColors.red : (running ? AppColors.amber : AppColors.green),
+                  size: 6,
+                  glow: live,
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(workflow.name, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+              if (running) ...[
+                const SizedBox(width: 6),
+                Text('${run!.doneCount}/${workflow.steps.length}',
+                    style: const TextStyle(color: AppColors.muted, fontSize: 11.5)),
+              ] else if (workflow.hotkey != null) ...[
+                const SizedBox(width: 6),
+                Text(Hotkeys.label(workflow.hotkey!), style: const TextStyle(color: AppColors.faint, fontSize: 11.5)),
+              ],
+              const SizedBox(width: 2),
+              live
+                  ? IconAction(
+                      icon: Icons.stop_rounded,
+                      tooltip: 'Stop workflow',
+                      color: AppColors.red,
+                      size: 26,
+                      onPressed: () => state.stopWorkflow(workflow),
+                    )
+                  : IconAction(
+                      icon: Icons.play_arrow_rounded,
+                      tooltip: 'Run workflow',
+                      color: AppColors.lavender,
+                      size: 26,
+                      onPressed: workflow.steps.isEmpty ? null : () => state.runWorkflow(workflow),
+                    ),
             ],
           ),
         ),
